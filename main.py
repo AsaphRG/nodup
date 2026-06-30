@@ -2,7 +2,7 @@ import os, hashlib, pathlib, sqlite3
 
 # localização, nome do arquivo, hash gerado
 
-def main(path_parameter: str, progress_callback=None, total_callback=None):
+def main(path_parameter: str, progress_callback=None, total_callback=None, cancel_callback=None):
     path = pathlib.Path(path_parameter)
     if not path.exists() or not path.is_dir():
         raise ValueError("O caminho especificado não existe ou não é um diretório válido.")
@@ -43,9 +43,13 @@ def main(path_parameter: str, progress_callback=None, total_callback=None):
     dados_para_salvar = []
     erros = []
     count = 0
+    is_interrupted = False
 
     # Processar cada arquivo (lento, com hashing)
     for root, file in arquivos_validos:
+        if cancel_callback and cancel_callback():
+            is_interrupted = True
+            break
         try:
             file_path = os.path.join(root, file)
             with open(file_path, 'rb') as img:
@@ -82,7 +86,8 @@ def main(path_parameter: str, progress_callback=None, total_callback=None):
 
     return {
         "total_processado": count,
-        "erros": erros
+        "erros": erros,
+        "interrompido": is_interrupted
     }
 
 def buscar_duplicados():

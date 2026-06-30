@@ -166,14 +166,22 @@ class ScanWorker(QThread):
     def __init__(self, folder_path):
         super().__init__()
         self.folder_path = folder_path
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
+
+    def check_cancelled(self):
+        return self._is_cancelled
 
     def run(self):
         try:
-            # Executa a varredura com callback para atualizar a interface
+            # Executa a varredura com callback para atualizar a interface e checar cancelamento
             resultado = scan_images(
                 self.folder_path, 
                 progress_callback=self.progress_updated.emit,
-                total_callback=self.total_found.emit
+                total_callback=self.total_found.emit,
+                cancel_callback=self.check_cancelled
             )
             self.scan_finished.emit(resultado)
         except Exception as e:
@@ -231,11 +239,21 @@ class MainWindow(QMainWindow):
         self.folder_layout.addWidget(self.btn_browse)
         self.scan_layout.addLayout(self.folder_layout)
 
-        # Botão de Ação
+        # Botões de Ação
+        self.scan_actions_layout = QHBoxLayout()
         self.btn_scan = QPushButton("Iniciar Varredura")
         self.btn_scan.setFixedHeight(45)
         self.btn_scan.clicked.connect(self.start_scan)
-        self.scan_layout.addWidget(self.btn_scan)
+        
+        self.btn_cancel = QPushButton("Cancelar")
+        self.btn_cancel.setFixedHeight(45)
+        self.btn_cancel.setEnabled(False)
+        self.btn_cancel.setObjectName("btnCancel")
+        self.btn_cancel.clicked.connect(self.cancel_scan)
+        
+        self.scan_actions_layout.addWidget(self.btn_scan, 2)
+        self.scan_actions_layout.addWidget(self.btn_cancel, 1)
+        self.scan_layout.addLayout(self.scan_actions_layout)
 
         # Status e Progresso
         self.status_layout = QVBoxLayout()
@@ -441,6 +459,20 @@ class MainWindow(QMainWindow):
                 background-color: #FF5A5A;
                 color: #EEEEEE;
             }
+            QPushButton#btnCancel {
+                background-color: #29292E;
+                color: #A8A8B3;
+                border: 1px solid #4b5563;
+            }
+            QPushButton#btnCancel:hover {
+                background-color: #E04343;
+                color: #EEEEEE;
+            }
+            QPushButton#btnCancel:disabled {
+                background-color: #1a1a1e;
+                color: #555555;
+                border: 1px solid #29292E;
+            }
             QProgressBar {
                 border: 1px solid #29292E;
                 border-radius: 6px;
@@ -543,6 +575,7 @@ class MainWindow(QMainWindow):
 
         self.btn_scan.setEnabled(False)
         self.btn_browse.setEnabled(False)
+        self.btn_cancel.setEnabled(True)
         self.lbl_status.setText("Status: Mapeando arquivos...")
         self.progress_bar.setValue(0)
         self.progress_bar.setMaximum(0) # Modo indeterminado inicialmente
@@ -556,6 +589,12 @@ class MainWindow(QMainWindow):
         self.worker.scan_error.connect(self.scan_failed)
         self.worker.start()
 
+    def cancel_scan(self):
+        if hasattr(self, 'worker') and self.worker.isRunning():
+            self.btn_cancel.setEnabled(False)
+            self.lbl_status.setText("Status: Cancelando varredura...")
+            self.worker.cancel()
+
     @Slot(int)
     def update_progress(self, val):
         self.progress_bar.setValue(val)
@@ -564,13 +603,22 @@ class MainWindow(QMainWindow):
     def scan_completed(self, result):
         self.btn_scan.setEnabled(True)
         self.btn_browse.setEnabled(True)
-        self.lbl_status.setText(f"Status: Concluído! {result['total_processado']} imagens processadas.")
+        self.btn_cancel.setEnabled(False)
         
-        num_erros = len(result['erros'])
-        msg = f"Varredura concluída!\nImagens lidas e salvas: {result['total_processado']}"
-        if num_erros > 0:
-            msg += f"\nErros de leitura: {num_erros}"
-        QMessageBox.information(self, "Varredura Concluída", msg)
+        if result.get("interrompido", False):
+            self.lbl_status.setText(f"Status: Cancelado. {result['total_processado']} imagens salvas.")
+            QMessageBox.information(
+                self, 
+                "Varredura Interrompida", 
+                f"Varredura interrompida pelo usuário.\nImagens processadas e salvas até o momento: {result['total_processado']}"
+            )
+        else:
+            self.lbl_status.setText(f"Status: Concluído! {result['total_processado']} imagens processadas.")
+            num_erros = len(result['erros'])
+            msg = f"Varredura concluída!\nImagens lidas e salvas: {result['total_processado']}"
+            if num_erros > 0:
+                msg += f"\nErros de leitura: {num_erros}"
+            QMessageBox.information(self, "Varredura Concluída", msg)
 
         # Recarrega o grid e vai para a aba de resultados
         self.carregar_dados()
@@ -581,6 +629,7 @@ class MainWindow(QMainWindow):
     def scan_failed(self, error_msg):
         self.btn_scan.setEnabled(True)
         self.btn_browse.setEnabled(True)
+        self.btn_cancel.setEnabled(False)
         self.lbl_status.setText("Status: Erro na varredura.")
         QMessageBox.critical(self, "Erro na Varredura", f"Ocorreu um erro: {error_msg}")
 
@@ -817,7 +866,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         if hasattr(self, 'worker') and self.worker.isRunning():
-            self.worker.terminate()
+            self.lbl_status.setText("Aguardando finalização das tarefas...")
+            self.worker.cancel()
             self.worker.wait()
         event.accept()
 
