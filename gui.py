@@ -2,7 +2,7 @@ import os, sys, collections
 # pyrefly: ignore [missing-import]
 from PySide6.QtCore import Qt, QThread, Signal, Slot, QSize
 # pyrefly: ignore [missing-import]
-from PySide6.QtGui import QColor, QIcon, QPixmap
+from PySide6.QtGui import QColor, QIcon, QPixmap, QImageReader
 # pyrefly: ignore [missing-import]
 from PySide6.QtWidgets import (
     QApplication,
@@ -25,7 +25,9 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QListWidget,
     QListWidgetItem,
-    QFrame
+    QFrame,
+    QComboBox,
+    QSlider
 )
 
 # Importar lógica do main.py
@@ -241,6 +243,51 @@ class MainWindow(QMainWindow):
         self.folder_layout.addWidget(self.txt_folder)
         self.folder_layout.addWidget(self.btn_browse)
         self.scan_layout.addLayout(self.folder_layout)
+
+        # Configurações de Varredura (Modo e Tolerância)
+        self.options_frame = QFrame()
+        self.options_frame.setObjectName("optionsFrame")
+        self.options_layout = QHBoxLayout(self.options_frame)
+        self.options_layout.setContentsMargins(15, 10, 15, 10)
+        self.options_layout.setSpacing(20)
+
+        # Seletor de Modo
+        self.mode_layout = QVBoxLayout()
+        self.lbl_mode = QLabel("Modo de Comparação:")
+        self.lbl_mode.setStyleSheet("font-weight: bold; color: #EEEEEE;")
+        self.cb_mode = QComboBox()
+        self.cb_mode.addItems(["Exato (SHA-256 binário)", "Similar (Visual / Perceptual)"])
+        self.cb_mode.currentIndexChanged.connect(self.toggle_mode_options)
+        self.mode_layout.addWidget(self.lbl_mode)
+        self.mode_layout.addWidget(self.cb_mode)
+        self.options_layout.addLayout(self.mode_layout, 1)
+
+        # Seletor de Tolerância (só visível no modo Similar)
+        self.tolerance_container = QWidget()
+        self.tolerance_layout = QVBoxLayout(self.tolerance_container)
+        self.tolerance_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.tolerance_label_layout = QHBoxLayout()
+        self.lbl_tolerance_title = QLabel("Tolerância Visual:")
+        self.lbl_tolerance_title.setStyleSheet("font-weight: bold; color: #EEEEEE;")
+        self.lbl_tolerance_val = QLabel("4 (Recomendado)")
+        self.lbl_tolerance_val.setStyleSheet("color: #00ADB5; font-weight: bold;")
+        self.tolerance_label_layout.addWidget(self.lbl_tolerance_title)
+        self.tolerance_label_layout.addWidget(self.lbl_tolerance_val)
+        self.tolerance_label_layout.addStretch()
+
+        self.slider_tolerance = QSlider(Qt.Horizontal)
+        self.slider_tolerance.setRange(0, 16)
+        self.slider_tolerance.setValue(4)
+        self.slider_tolerance.valueChanged.connect(self.update_tolerance_label)
+        
+        self.tolerance_layout.addLayout(self.tolerance_label_layout)
+        self.tolerance_layout.addWidget(self.slider_tolerance)
+        self.options_layout.addWidget(self.tolerance_container, 1)
+        
+        self.tolerance_container.setVisible(False)
+        
+        self.scan_layout.addWidget(self.options_frame)
 
         # Botões de Ação
         self.scan_actions_layout = QHBoxLayout()
@@ -476,6 +523,53 @@ class MainWindow(QMainWindow):
                 color: #555555;
                 border: 1px solid #29292E;
             }
+            QFrame#optionsFrame {
+                background-color: #202024;
+                border: 1px solid #29292E;
+                border-radius: 8px;
+            }
+            QComboBox {
+                background-color: #121214;
+                color: #EEEEEE;
+                border: 1px solid #29292E;
+                border-radius: 6px;
+                padding: 8px 12px;
+                min-width: 200px;
+            }
+            QComboBox:focus {
+                border: 1px solid #00ADB5;
+            }
+            QComboBox::drop-down {
+                border: none;
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 30px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #202024;
+                color: #EEEEEE;
+                border: 1px solid #29292E;
+                selection-background-color: #00ADB5;
+                selection-color: #121214;
+            }
+            QSlider::groove:horizontal {
+                border: 1px solid #29292E;
+                height: 8px;
+                background: #121214;
+                margin: 2px 0;
+                border-radius: 4px;
+            }
+            QSlider::handle:horizontal {
+                background: #00ADB5;
+                border: none;
+                width: 18px;
+                height: 18px;
+                margin: -6px 0;
+                border-radius: 9px;
+            }
+            QSlider::handle:horizontal:hover {
+                background: #00F5FF;
+            }
             QProgressBar {
                 border: 1px solid #29292E;
                 border-radius: 6px;
@@ -564,6 +658,29 @@ class MainWindow(QMainWindow):
             }
         """)
 
+    @Slot(int)
+    def toggle_mode_options(self, index):
+        is_similar = (index == 1)
+        self.tolerance_container.setVisible(is_similar)
+        self.carregar_dados()
+
+    @Slot(int)
+    def update_tolerance_label(self, val):
+        if val == 0:
+            desc = "0 (Idêntico)"
+        elif 1 <= val <= 2:
+            desc = f"{val} (Muito Alta)"
+        elif 3 <= val <= 5:
+            desc = f"{val} (Recomendado)"
+        elif 6 <= val <= 8:
+            desc = f"{val} (Média)"
+        elif 9 <= val <= 12:
+            desc = f"{val} (Baixa)"
+        else:
+            desc = f"{val} (Muito Baixa)"
+        self.lbl_tolerance_val.setText(desc)
+        self.carregar_dados()
+
     def select_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Selecionar Diretório")
         if folder:
@@ -638,7 +755,10 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def carregar_dados(self):
-        dados = buscar_duplicados()
+        modo = "exato" if self.cb_mode.currentIndex() == 0 else "similar"
+        tolerancia = self.slider_tolerance.value()
+        
+        dados = buscar_duplicados(modo=modo, tolerancia=tolerancia)
         self.thumbnail_grid.clear()
 
         # Agrupar itens por hash
@@ -660,11 +780,16 @@ class MainWindow(QMainWindow):
             item.setText(f"{represetante['nome']}\n({len(items)} cópias)")
             item.setTextAlignment(Qt.AlignCenter)
             
-            # Carregar miniatura
-            pixmap = QPixmap(caminho_completo)
-            if not pixmap.isNull():
-                thumbnail = pixmap.scaled(110, 110, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                item.setIcon(QIcon(thumbnail))
+            # Carregar miniatura de forma otimizada
+            reader = QImageReader(caminho_completo)
+            reader.setAutoTransform(True)
+            orig_size = reader.size()
+            if orig_size.isValid():
+                orig_size.scale(110, 110, Qt.KeepAspectRatio)
+                reader.setScaledSize(orig_size)
+            image = reader.read()
+            if not image.isNull():
+                item.setIcon(QIcon(QPixmap.fromImage(image)))
             else:
                 # Placeholder para imagem corrompida ou inacessível
                 item.setText(f"[Sem visualização]\n{represetante['nome']}\n({len(items)} cópias)")
@@ -685,16 +810,22 @@ class MainWindow(QMainWindow):
         represetante = copies[0]
         caminho_img = os.path.join(represetante['caminho'], represetante['nome'])
 
-        # Atualizar imagem de preview
-        pixmap = QPixmap(caminho_img)
-        if not pixmap.isNull():
-            self.lbl_preview.setPixmap(pixmap.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        # Atualizar imagem de preview de forma otimizada
+        reader = QImageReader(caminho_img)
+        reader.setAutoTransform(True)
+        orig_size = reader.size()
+        if orig_size.isValid():
+            orig_size.scale(200, 200, Qt.KeepAspectRatio)
+            reader.setScaledSize(orig_size)
+        image = reader.read()
+        if not image.isNull():
+            self.lbl_preview.setPixmap(QPixmap.fromImage(image))
         else:
             self.lbl_preview.setText("[Sem prévia]")
 
         # Metadados
         self.lbl_meta_name.setText(f"Nome: {represetante['nome']}")
-        self.lbl_meta_hash.setText(f"Hash SHA-256: {hash_val}")
+        self.lbl_meta_hash.setText(f"Hash identificador: {hash_val}")
         
         # Calcular tamanho formatado
         tamanho_str = "Tamanho: Desconhecido"
