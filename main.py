@@ -1,4 +1,4 @@
-import os, hashlib, pathlib, sqlite3
+import os, hashlib, pathlib, sqlite3, send2trash
 
 # localização, nome do arquivo, hash gerado
 
@@ -130,7 +130,7 @@ def excluir_registro_e_arquivo(id_registro: int):
         caminho, nome = row
         file_path = os.path.join(caminho, nome)
         if os.path.exists(file_path):
-            os.remove(file_path)
+            send2trash.send2trash(file_path)
         
         cursor.execute("DELETE FROM imagens WHERE id = ?", (id_registro,))
         conn.commit()

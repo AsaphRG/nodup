@@ -1,6 +1,9 @@
 import os, sys, collections
+# pyrefly: ignore [missing-import]
 from PySide6.QtCore import Qt, QThread, Signal, Slot, QSize
+# pyrefly: ignore [missing-import]
 from PySide6.QtGui import QColor, QIcon, QPixmap
+# pyrefly: ignore [missing-import]
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
