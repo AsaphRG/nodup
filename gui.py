@@ -257,6 +257,7 @@ class MainWindow(QMainWindow):
         self.lbl_mode.setStyleSheet("font-weight: bold; color: #EEEEEE;")
         self.cb_mode = QComboBox()
         self.cb_mode.addItems(["Exato (SHA-256 binário)", "Similar (Visual / Perceptual)"])
+        self.cb_mode.setCurrentIndex(1)
         self.cb_mode.currentIndexChanged.connect(self.toggle_mode_options)
         self.mode_layout.addWidget(self.lbl_mode)
         self.mode_layout.addWidget(self.cb_mode)
@@ -285,7 +286,7 @@ class MainWindow(QMainWindow):
         self.tolerance_layout.addWidget(self.slider_tolerance)
         self.options_layout.addWidget(self.tolerance_container, 1)
         
-        self.tolerance_container.setVisible(False)
+        self.tolerance_container.setVisible(True)
         
         self.scan_layout.addWidget(self.options_frame)
 
